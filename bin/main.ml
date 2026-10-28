@@ -81,7 +81,7 @@ type equa_zip = equa * equa
 let rec rembobine (e : equa_zip) =
   match e with
     ([], _) -> e
-  | (c::e1, e2) -> (e1, c::e2)
+  | (c::e1, e2) -> rembobine(e1, c::e2)
 
 (* remplace unee variable par un type dans un zipper d'équations *)
 let substitue_type_zip (e : equa_zip) (v : string) (t0 : ptype) : equa_zip =
