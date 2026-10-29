@@ -1,6 +1,6 @@
 # Projet TAS — Évaluateur et Typeur d'un λ-calcul enrichi
 
-Projet du cours **TAS (Typage et Analyse Statique)** — Master 1 STL, Sorbonne Université.
+Projet du cours **TAS (Typage et Analyse Statique)** — Master 2 STL, Sorbonne Université.
 
 Implémentation en **OCaml** d'un évaluateur et d'un typeur pour un λ-calcul,
 enrichi progressivement (entiers, listes, `let`, `fix`, traits impératifs…).
@@ -35,6 +35,4 @@ dune exec ./bin/main.exe
 - [ ] **Partie 4 — Traits impératifs (`ref`, `!`, `:=`), polymorphisme faible**
 - [ ] **Partie 5 — Extensions**
 
-## Auteur
 
-Ton Prénom Nom — Master 1 STL, Sorbonne Université
