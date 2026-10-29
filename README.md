@@ -34,5 +34,3 @@ dune exec ./bin/main.exe
 - [ ] **Partie 3 — Entiers, listes, `let`, `fix`, let-polymorphisme**
 - [ ] **Partie 4 — Traits impératifs (`ref`, `!`, `:=`), polymorphisme faible**
 - [ ] **Partie 5 — Extensions**
-
-
