@@ -46,18 +46,18 @@ let main () =
  print_endline "======================";
  print_endline inf_ex_nat3;
  print_endline "========ALPHA-CONVERSION=====";
-print_endline (print_term (alphaconv ex_k []));
+ print_endline (print_term (alphaconv ex_k []));
  print_endline (print_term (alphaconv (Abs ("x", App (Var "x", Var "y"))) []));
  print_endline (print_term (alphaconv (Abs ("x", Abs ("x", Var "x"))) [])) ; 
 
-  print_endline "====== SUBSTITUTION ======";
+ print_endline "====== SUBSTITUTION ======";
  print_endline (print_term (substitution "x" (N 3) (Add (Var "x", N 1))));
  print_endline (print_term (substitution "x" ex_id (App (Var "x", Var "y"))));
  print_endline (print_term (substitution "x" (N 3) (Abs ("x", Var "x"))));
  print_endline (print_term (substitution "x" (N 3) (Abs ("y", Add (Var "x", Var "y")))));
 
 
-print_endline "====== UNE ETAPE LTR-CBV ======";
+ print_endline "====== UNE ETAPE LTR-CBV ======";
  print_endline (print_step ex_nat1);
  print_endline (print_step (Add (N 3, N 1)));
  print_endline (print_step (App (ex_id, ex_id)));
@@ -74,7 +74,15 @@ print_endline "====== UNE ETAPE LTR-CBV ======";
  ltr_cbv_norm (App (Var "y", N 3)) 100;
  ltr_cbv_norm ex_omega 5;
 
-  print_endline "====== CORRECTIONS DU TYPEUR ======";
+ print_endline "====== CORRECTIONS DU TYPEUR ======";
  print_endline (inference (App (Var "y", N 3)));
- print_endline (inference_fuel ex_s 3)
+ print_endline (inference_fuel ex_s 3);
+
+ print_endline "====== TEST CAPTURE ======";
+ ltr_cbv_norm (App (Abs ("x", Abs ("y", Var "x")), Var "y")) 10;
+ ltr_cbv_norm (App (App (Abs ("x", Abs ("y", Var "x")), Var "y"), N 5)) 10;
+ ltr_cbv_norm (App (Abs ("x", Abs ("y", Var "x")), Var "x1")) 10;
+ ltr_cbv_norm (App (Abs ("x", Abs ("y", Var "x")), Var "_x21")) 10;
+ ltr_cbv_norm (App (Abs ("x", Abs ("y", Var "_x23")), N 3)) 10
+
 let _ = main ()

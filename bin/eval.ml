@@ -8,21 +8,40 @@ open Syntaxe
 let compteur_var_t : int ref = ref 0
 let nouvelle_var_t () : string = 
   compteur_var_t := !compteur_var_t +1;
-  "x" ^ (string_of_int !compteur_var_t)
+  "_x" ^ (string_of_int !compteur_var_t)
 
+(* renvoie la liste des variables libres d'un terme *)
+let rec variables_libres (t : pterm) : string list =
+  match t with
+  | Var x -> [x]
+  | Abs (x, m) -> List.filter (fun y -> y <> x) (variables_libres m)
+  | App (m, n) -> (variables_libres m) @ (variables_libres n)
+  | N _ -> []
+  | Add (m, n) -> (variables_libres m) @ (variables_libres n)
 
-(* alpha-conversion : renomme toutes les variables liées par des noms frais 
-    rn : liste (ancien nom, nouveau nom) des variables liées au-dessus *)
-let rec alphaconv(t : pterm) (rn : (string * string ) list) : pterm = 
+(* tire un nom frais, et recommence tant que le nom fait partie de la liste interdite *)
+let rec nom_frais (interdits : string list) : string =
+  let v = nouvelle_var_t () in
+  if List.mem v interdits then nom_frais interdits else v
+
+  (* alpha-conversion qui évite les noms de la liste interdits
+   rn : liste (ancien nom, nouveau nom) des variables liées au-dessus *)
+let rec alphaconv_evite (t : pterm) (rn : (string * string) list) (interdits : string list) : pterm =
   match t with
   | Var x -> (match List.assoc_opt x rn with
               | Some x' -> Var x'
-              | None -> Var x)    
-  | Abs (x, m) -> let x' = nouvelle_var_t() in 
-                  Abs (x', alphaconv m ((x,x') :: rn))
-  | App(m,n) -> App (alphaconv m rn , alphaconv n rn)
-  | N k -> N k  
-  | Add (m,n ) -> Add (alphaconv m rn , alphaconv n rn)                         
+              | None -> Var x)
+  | Abs (x, m) -> let x' = nom_frais interdits in
+                  Abs (x', alphaconv_evite m ((x, x') :: rn) interdits)
+  | App (m, n) -> App (alphaconv_evite m rn interdits, alphaconv_evite n rn interdits)
+  | N k -> N k
+  | Add (m, n) -> Add (alphaconv_evite m rn interdits, alphaconv_evite n rn interdits)
+ 
+(* alpha-conversion (convention de Barendregt) : les variables liées
+   deviennent fraîches, distinctes entre elles ET des variables libres de t *)
+let alphaconv (t : pterm) (rn : (string * string) list) : pterm =
+  alphaconv_evite t rn (variables_libres t)
+                  
 
 
 (* substitution : remplace la variable x par le terme n dans le terme m
@@ -65,9 +84,10 @@ let rec ltr_cbv_step (t : pterm) : pterm option =
          | Some n' -> Some (App (m, n'))
          | None -> None)
       else
-        (* règle β : les deux sont des valeurs *)
+        (* règle β : on renomme les variables liées du corps en évitant
+           les variables libres de l'argument n, puis on substitue *)
         (match m with
-         | Abs (x, corps) -> Some (substitution x (alphaconv n []) corps)
+         | Abs (x, corps) -> Some (substitution x n (alphaconv_evite corps [] ((variables_libres n) @ (variables_libres corps))))
          | _ -> None)
   | Add (m, n) ->
       if not (est_valeur m) then
