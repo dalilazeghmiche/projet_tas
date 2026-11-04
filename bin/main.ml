@@ -38,6 +38,20 @@ let map : pterm =
   Fix (Abs ("m", Abs ("g", Abs ("l",
     IfEmpty (Var "l", Nil, Cons (App (Var "g", Hd (Var "l")), App (App (Var "m", Var "g"), Tl (Var "l"))))))))
 
+    (* ***EXEMPLES PARTIE 4*** *)
+(* exemple du sujet : let l = ref [] in let _ = l := [fun x -> x] in (hd !l) + 2 *)
+let ex_sujet : pterm =
+  Let ("l", Ref Nil,
+       Let ("_", Assign (Var "l", Cons (Abs ("x", Var "x"), Nil)),
+            Add (Hd (Deref (Var "l")), N 2)))
+
+(* compteur : let c = ref 0 in let incr = fun u -> c := !c + 1 in incr (); incr (); !c *)
+let ex_compteur : pterm =
+  Let ("c", Ref (N 0),
+       Let ("incr", Abs ("u", Assign (Var "c", Add (Deref (Var "c"), N 1))),
+            Let ("_", App (Var "incr", Unit),
+                 Let ("_", App (Var "incr", Unit),
+                      Deref (Var "c")))))
 
 (* type d'abord le programme, puis l'évalue seulement s'il est typable *)
 let executer (t : pterm) : unit =
@@ -49,8 +63,8 @@ let executer (t : pterm) : unit =
 
 (* affiche une étape de réduction *)
 let print_step (t : pterm) : string =
-  match ltr_cbv_step t with
-  | Some t' -> (print_term t) ^ "   -->   " ^ (print_term t')
+  match ltr_cbv_step t [] with
+  | Some (t', _) -> (print_term t) ^ "   -->   " ^ (print_term t')
   | None -> (print_term t) ^ "   : aucune reduction possible"
 
 let main () =
@@ -175,7 +189,37 @@ let main () =
  executer (Add (N 3, Abs ("x", Var "x")));
  executer (App (Hd Nil, N 1));
  executer ex_omega;
- executer (Let ("x", Hd Nil, Add (Var "x", N 1)))
+ executer (Let ("x", Hd Nil, Add (Var "x", N 1)));
+
+
+
+ print_endline "====== PARTIE 4 : SYNTAXE ======";
+ print_endline (print_term ex_sujet);
+ print_endline (print_type (TRef (Liste (Var "X"))));
+ print_endline (print_type (Weak (["X"], TRef (Liste (Var "X")))));
+ print_endline "====== PARTIE 4 : EVALUATION (avec etat) ======";
+ ltr_cbv_norm (Deref (Ref (N 5))) 20;
+ ltr_cbv_norm (Let ("r", Ref (N 1), Let ("_", Assign (Var "r", Add (Deref (Var "r"), N 1)), Deref (Var "r")))) 20;
+ ltr_cbv_norm ex_compteur 100;
+ ltr_cbv_norm ex_sujet 50;
+ print_endline "====== PARTIE 4 : TYPAGE ======";
+ print_endline (inference Unit);
+ print_endline (inference (Ref (N 5)));
+ print_endline (inference (Abs ("r", Deref (Var "r"))));
+ print_endline (inference (Abs ("r", Abs ("v", Assign (Var "r", Var "v")))));
+ print_endline (inference ex_compteur);
+ print_endline (inference (Deref (N 3)));
+ print_endline (inference (Assign (N 1, N 2)));
+ print_endline (inference (Let ("r", Ref (N 1), Assign (Var "r", Nil))));
+ print_endline "--- polymorphisme faible : exemple du sujet ---";
+ polymorphisme_faible := false;
+ print_endline ("sans polymorphisme faible : " ^ (inference ex_sujet));
+ polymorphisme_faible := true;
+ print_endline ("avec polymorphisme faible : " ^ (inference ex_sujet));
+ print_endline (inference (Let ("l", Ref Nil, Let ("_", Assign (Var "l", Cons (N 1, Nil)), Hd (Deref (Var "l"))))));
+ print_endline "====== PARTIE 4 : TYPER PUIS EVALUER ======";
+ executer ex_compteur;
+ executer ex_sujet
 
 let _ =
   main ();

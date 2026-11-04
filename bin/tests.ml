@@ -138,6 +138,64 @@ let tests_type_partie3 () : unit =
      teste_type "fix type non fonctionnel" (Fix (Abs ("n", Add (Var "n", N 1)))) "PAS TYPABLE";
      teste_type "fix (fun f -> f)" (Fix (Abs ("f", Var "f"))) "(a -> b)"
 
+
+(* ---------- partie 4 : termes utilisés ---------- *)
+(* let x = e1 in e2 où x n'est pas utilisé : séquence e1 ; e2 *)
+let seq (e1 : pterm) (e2 : pterm) : pterm = Let ("_", e1, e2)
+let ex_sujet : pterm =
+  Let ("l", Ref Nil, seq (Assign (Var "l", Cons (Abs ("x", Var "x"), Nil))) (Add (Hd (Deref (Var "l")), N 2)))
+let ex_compteur : pterm =
+  Let ("c", Ref (N 0),
+       Let ("incr", Abs ("u", Assign (Var "c", Add (Deref (Var "c"), N 1))),
+            seq (App (Var "incr", Unit)) (seq (App (Var "incr", Unit)) (Deref (Var "c")))))
+ 
+(* ---------- partie 4 : évaluation ---------- *)
+let tests_eval_partie4 () : unit =
+  teste_eval "!(ref 5)" (Deref (Ref (N 5))) "5";
+  teste_eval "ref evalue son argument" (Deref (Ref (Add (N 1, N 1)))) "2";
+  teste_eval "ref 5 donne une region" (Ref (N 5)) "rho0";
+  teste_eval "assign renvoie ()" (Assign (Ref (N 1), N 2)) "()";
+  teste_eval "r := !r + 1" (Let ("r", Ref (N 1), seq (Assign (Var "r", Add (Deref (Var "r"), N 1))) (Deref (Var "r")))) "2";
+  teste_eval "compteur" ex_compteur "2";
+  teste_eval "deux regions independantes"
+    (Let ("a", Ref (N 1), Let ("b", Ref (N 2), seq (Assign (Var "a", N 10)) (Deref (Var "b"))))) "2";
+  teste_eval "partage (alias)"
+    (Let ("a", Ref (N 1), Let ("b", Var "a", seq (Assign (Var "b", N 5)) (Deref (Var "a"))))) "5";
+  teste_eval "!3 bloque" (Deref (N 3)) "BLOQUE";
+  teste_eval "1 := 2 bloque" (Assign (N 1, N 2)) "BLOQUE";
+  teste_eval "exemple du sujet bloque" ex_sujet "BLOQUE"
+ 
+(* ---------- partie 4 : typage ---------- *)
+let tests_type_partie4 () : unit =
+  teste_type "()" Unit "Unit";
+  teste_type "ref 5" (Ref (N 5)) "(Ref Nat)";
+  teste_type "fun r -> !r" (Abs ("r", Deref (Var "r"))) "((Ref a) -> a)";
+  teste_type "fun r v -> r := v" (Abs ("r", Abs ("v", Assign (Var "r", Var "v")))) "((Ref a) -> (a -> Unit))";
+  teste_type "compteur" ex_compteur "Nat";
+  teste_type "!3" (Deref (N 3)) "PAS TYPABLE";
+  teste_type "1 := 2" (Assign (N 1, N 2)) "PAS TYPABLE";
+  teste_type "r := [] avec r : Ref Nat" (Let ("r", Ref (N 1), Assign (Var "r", Nil))) "PAS TYPABLE";
+  (* polymorphisme faible *)
+  polymorphisme_faible := false;
+  teste_type "exemple du sujet SANS polymorphisme faible" ex_sujet "Nat";
+  polymorphisme_faible := true;
+  teste_type "exemple du sujet AVEC polymorphisme faible" ex_sujet "PAS TYPABLE";
+  teste_type "weak : la premiere utilisation fixe le type"
+    (Let ("l", Ref Nil, seq (Assign (Var "l", Cons (N 1, Nil))) (Hd (Deref (Var "l"))))) "Nat";
+  teste_type "weak : deuxieme utilisation incompatible"
+    (Let ("l", Ref Nil, seq (Assign (Var "l", Cons (N 1, Nil))) (Assign (Var "l", Cons (Nil, Nil))))) "PAS TYPABLE";
+  teste_type "weak : pas generalise par un let interne"
+    (Let ("l", Ref Nil, Let ("f", Abs ("x", Assign (Var "l", Cons (Var "x", Nil))),
+                             seq (App (Var "f", N 1)) (App (Var "f", Nil))))) "PAS TYPABLE";
+  teste_type "application expansive : (fun x -> ref x) []"
+    (Let ("r", App (Abs ("x", Ref (Var "x")), Nil),
+          seq (Assign (Var "r", Cons (Abs ("y", Var "y"), Nil))) (Add (Hd (Deref (Var "r")), N 2)))) "PAS TYPABLE";
+  teste_type "non-expansif reste polymorphe"
+    (Let ("id", Abs ("x", Var "x"), seq (App (Var "id", N 1)) (App (Var "id", Nil)))) "[a]";
+  teste_type "ref dans une fonction" (Abs ("y", Let ("r", Ref (Var "y"), Deref (Var "r")))) "(a -> a)";
+  teste_type "limite : application partielle non generalisee"
+    (Let ("f", App (Abs ("x", Abs ("y", Var "y")), N 1), seq (App (Var "f", N 1)) (App (Var "f", Nil)))) "PAS TYPABLE"
+
 (* lance tous les tests et affiche le bilan *)
 let lance () : unit =
   print_endline "====== TESTS AUTOMATIQUES ======";
@@ -146,5 +204,7 @@ let lance () : unit =
   tests_type_partie2 ();
   tests_eval_partie3 ();
   tests_type_partie3 ();
+  tests_eval_partie4 ();
+  tests_type_partie4 ();
   print_endline ("Bilan : " ^ (string_of_int !nb_ok) ^ " tests reussis, "
                  ^ (string_of_int !nb_echec) ^ " echec(s)")

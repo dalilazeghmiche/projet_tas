@@ -33,7 +33,19 @@ let rec appartient_type (v : string) (t : ptype) : bool =
   | Nat -> false
   | Liste t1 -> appartient_type v t1
   | Forall (vs, t1) -> not (List.mem v vs) && appartient_type v t1
+  | TUnit -> false
+  | TRef t1 -> appartient_type v t1
+  | Weak (_, t1) -> appartient_type v t1      (* les variables faibles ne sont pas liées *)
  
+(* variables de type d'un type (utilisée pour mettre à jour les variables faibles) *)
+let rec variables_type_simple (t : ptype) : string list =
+  match t with
+  | Var v -> [v]
+  | Arr (t1, t2) -> (variables_type_simple t1) @ (variables_type_simple t2)
+  | Nat | TUnit -> []
+  | Liste t1 | TRef t1 | Weak (_, t1) -> variables_type_simple t1
+  | Forall (vs, t1) -> List.filter (fun v -> not (List.mem v vs)) (variables_type_simple t1)
+
 (* remplace la variable v par le type t0 dans le type t *)
 let rec substitue_type (t : ptype) (v : string) (t0 : ptype) : ptype =
   match t with
@@ -43,6 +55,15 @@ let rec substitue_type (t : ptype) (v : string) (t0 : ptype) : ptype =
   | Liste t1 -> Liste (substitue_type t1 v t0)
   | Forall (vs, t1) -> if List.mem v vs then Forall (vs, t1)   (* v est liée ici *)
                        else Forall (vs, substitue_type t1 v t0)
+  | TUnit -> TUnit
+  | TRef t1 -> TRef (substitue_type t1 v t0)
+  | Weak (vs, t1) ->
+      (* une variable faible n'est pas liée : on la remplace aussi ;
+         si elle est remplacée par t0, les variables de t0 deviennent faibles *)
+      let vs' = List.sort_uniq compare
+                  (List.concat_map (fun w -> if w = v then variables_type_simple t0 else [w]) vs) in
+      let t1' = substitue_type t1 v t0 in
+      if vs' = [] then t1' else Weak (vs', t1')
  
 (* remplace la variable v par le type t0 dans une liste d'équations *)
 let substitue_type_partout (e : equa) (v : string) (t0 : ptype) : equa =
@@ -56,6 +77,9 @@ let rec variables_type (t : ptype) : string list =
   | Nat -> []
   | Liste t1 -> variables_type t1
   | Forall (vs, t1) -> List.filter (fun v -> not (List.mem v vs)) (variables_type t1)
+  | TUnit -> []
+  | TRef t1 -> variables_type t1
+  | Weak (_, t1) -> variables_type t1         (* les variables faibles restent libres *)
  
 (* "barendregtisation" et ouverture d'un forall :
    forall X1..Xk. T  devient  T où chaque Xi est remplacé par une variable fraîche *)
@@ -87,6 +111,10 @@ let rec unifie (eqs : equa) (s : substitution) (fuel : int) : substitution =
   (* un forall : on le renomme (barendregtisation) puis on l'ouvre *)
   | (Forall (vs, t1), t2) :: reste -> unifie ((ouvre vs t1, t2) :: reste) s (fuel - 1)
   | (t1, Forall (vs, t2)) :: reste -> unifie ((t1, ouvre vs t2) :: reste) s (fuel - 1)
+  (* un weak : on l'ouvre SANS renommer ses variables ; toutes les utilisations
+     partagent donc les mêmes variables, et la première instanciation est définitive *)
+  | (Weak (_, t1), t2) :: reste -> unifie ((t1, t2) :: reste) s (fuel - 1)
+  | (t1, Weak (_, t2)) :: reste -> unifie ((t1, t2) :: reste) s (fuel - 1)
   (* une variable d'un côté : occur check, puis on remplace la variable partout *)
   | (Var x, t) :: reste | (t, Var x) :: reste ->
       if appartient_type x t then
@@ -98,6 +126,8 @@ let rec unifie (eqs : equa) (s : substitution) (fuel : int) : substitution =
   | (Arr (t1, t2), Arr (t3, t4)) :: reste -> unifie ((t1, t3) :: (t2, t4) :: reste) s (fuel - 1)
   (* deux listes : on égalise le type des éléments *)
   | (Liste t1, Liste t2) :: reste -> unifie ((t1, t2) :: reste) s (fuel - 1)
+  (* deux références : on égalise le type du contenu *)
+  | (TRef t1, TRef t2) :: reste -> unifie ((t1, t2) :: reste) s (fuel - 1)
   (* constructeurs différents : échec *)
   | (t1, t2) :: _ ->
       raise (Echec_unif ("type " ^ (print_type t1) ^ " non-unifiable avec " ^ (print_type t2)))
@@ -115,6 +145,33 @@ let generalise (t : ptype) (e : env) : ptype =
   let vs = List.filter (fun v -> not (List.mem v libres_env)) (variables_type t) in
   if vs = [] then t else Forall (vs, t)
  
+(* ---------- polymorphisme faible (partie 4.6) ---------- *)
+
+(* active le polymorphisme faible (true) ; à false, on retrouve le typeur naïf
+   de la partie 3, qui accepte des programmes incorrects (exemple du sujet) *)
+let polymorphisme_faible : bool ref = ref true
+
+(* un terme est non-expansif si son évaluation ne peut pas créer de région :
+   variables, constantes, abstractions, et constructions dont tous les
+   sous-termes sont non-expansifs. Une application est toujours expansive
+   (elle peut exécuter un ref), ainsi que ref, ! et := *)
+let rec non_expansif (t : pterm) : bool =
+  match t with
+  | Var _ | N _ | Nil | Unit | Abs (_, _) -> true
+  | Fix (Abs (_, _)) -> true                  (* fix (fun f -> ...) définit une fonction *)
+  | Add (a, b) | Sub (a, b) | Cons (a, b) -> non_expansif a && non_expansif b
+  | Hd a | Tl a -> non_expansif a
+  | IfZero (c, a, b) | IfEmpty (c, a, b) -> non_expansif c && non_expansif a && non_expansif b
+  | Let (_, e1, e2) -> non_expansif e1 && non_expansif e2
+  | App (_, _) | Fix _ | Ref _ | Deref _ | Assign (_, _) | Region _ -> false
+
+(* généralisation faible : les variables libres de t qui ne sont pas dans
+   l'environnement deviennent faibles (weak) au lieu d'être généralisées *)
+let generalise_faible (t : ptype) (e : env) : ptype =
+  let libres_env = variables_env e in
+  let vs = List.filter (fun v -> not (List.mem v libres_env)) (variables_type t) in
+  if vs = [] then t else Weak (vs, t)
+
 (* ---------- génération d'équations ---------- *)
  
 (* génère les équations qui disent que le terme te a le type ty dans l'environnement e *)
@@ -158,7 +215,7 @@ let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
       let x = Var (nouvelle_var ()) in
       (genere_equa c (Liste x) e) @ (genere_equa a ty e) @ (genere_equa b ty e)
   (* ----- partie 3 : point fixe ----- *)
-    | Fix t1 ->
+  | Fix t1 ->
       (* règle (Fix) du cours : fix (fun phi -> M) : T -> U
          le type est forcément un type fonctionnel, et M : (T -> U) -> (T -> U) *)
       let ta = Var (nouvelle_var ()) and tr = Var (nouvelle_var ()) in
@@ -172,10 +229,30 @@ let rec genere_equa (te : pterm) (ty : ptype) (e : env) : equa =
       let t0' = applique_subst s t0 in
       (* 2. on généralise son type (on applique d'abord la solution à l'environnement) *)
       let e' = List.map (fun (y, t) -> (y, applique_subst s t)) e in
-      let sigma = generalise t0' e' in
+      (* polymorphisme faible : on ne généralise que les termes non-expansifs *)
+      let sigma = if (not !polymorphisme_faible) || non_expansif e1
+                  then generalise t0' e'
+                  else generalise_faible t0' e' in
       (* 3. on type e2 avec x : sigma ; on garde eq1 pour ne pas perdre
             les contraintes que e1 impose aux variables de l'environnement *)
       eq1 @ (genere_equa e2 ty ((x, sigma) :: e))
+  (* ----- partie 4 : traits impératifs ----- *)
+  | Unit -> [(ty, TUnit)]
+  | Ref t1 ->
+      (* ref : X -> Ref X *)
+      let x = Var (nouvelle_var ()) in
+      (ty, TRef x) :: (genere_equa t1 x e)
+  | Deref t1 ->
+      (* ! : Ref X -> X *)
+      let x = Var (nouvelle_var ()) in
+      (ty, x) :: (genere_equa t1 (TRef x) e)
+  | Assign (t1, t2) ->
+      (* := : Ref X -> X -> Unit *)
+      let x = Var (nouvelle_var ()) in
+      (ty, TUnit) :: ((genere_equa t1 (TRef x) e) @ (genere_equa t2 x e))
+  | Region _ ->
+      (* les régions n'apparaissent que pendant l'exécution, pas dans les programmes *)
+      raise (Echec_unif "une region ne peut pas apparaitre dans un programme")
  
 (* ---------- inférence ---------- *)
  
@@ -187,7 +264,9 @@ let variables_ordre (t : ptype) : string list =
     | Arr (t1, t2) -> parcours t2 (parcours t1 vu)
     | Nat -> vu
     | Liste t1 -> parcours t1 vu
-    | Forall (_, t1) -> parcours t1 vu
+    | Forall (_, t1) | Weak (_, t1) -> parcours t1 vu
+    | TUnit -> vu
+    | TRef t1 -> parcours t1 vu
   in parcours t []
  
 (* renomme les variables d'un type en a, b, c... pour un affichage lisible *)
@@ -220,4 +299,3 @@ let inference (t : pterm) : string = inference_fuel t fuel_defaut
 let type_de (t : pterm) : string =
   try print_type (renomme_lisible (typeur t fuel_defaut))
   with Echec_unif _ | VarPasTrouve -> "PAS TYPABLE"
- 
